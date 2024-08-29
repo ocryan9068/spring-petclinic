@@ -15,23 +15,27 @@
  */
 package org.springframework.samples.petclinic.owner;
 
-import java.time.LocalDate;
-import java.util.Collection;
-
+import jakarta.validation.Valid;
+import org.json.JSONException;
+import org.json.JSONObject;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.ModelMap;
 import org.springframework.util.StringUtils;
 import org.springframework.validation.BindingResult;
 import org.springframework.web.bind.WebDataBinder;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.InitBinder;
-import org.springframework.web.bind.annotation.ModelAttribute;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-
-import jakarta.validation.Valid;
+import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
+
+import java.time.Instant;
+import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Collection;
+
+import software.amazon.awssdk.services.eventbridge.EventBridgeClient;
+import software.amazon.awssdk.services.eventbridge.model.PutEventsRequestEntry;
+import software.amazon.awssdk.services.eventbridge.model.PutEventsRequest;
+import software.amazon.awssdk.services.eventbridge.model.PutEventsResponse;
 
 /**
  * @author Juergen Hoeller
@@ -118,7 +122,41 @@ class PetController {
 
 		this.owners.save(owner);
 		redirectAttributes.addFlashAttribute("message", "New Pet has been Added");
+		try {
+			sendCreatePetEvent(owner, pet);
+		} catch (JSONException e) {
+			throw new RuntimeException(e);
+		}
 		return "redirect:/owners/{ownerId}";
+	}
+
+	private void sendCreatePetEvent(Owner owner, Pet pet) throws JSONException {
+		EventBridgeClient eventBridgeClient = EventBridgeClient.builder().build();
+
+		String source = "PetClinic";
+		String detailType = "newPet";
+		JSONObject detail = new JSONObject();
+		detail.put("id", pet.getId());
+		detail.put("name", pet.getName());
+		detail.put("birthDate", pet.getBirthDate().toString());
+		detail.put("type", pet.getType().getName());
+		detail.put("ownerId", owner.getId());
+		detail.put("ownerFirstName", owner.getFirstName());
+		detail.put("ownerLastName", owner.getLastName());
+
+		PutEventsRequestEntry requestEntry = PutEventsRequestEntry.builder()
+			.time(Instant.now())
+			.source(source)
+			.detailType(detailType)
+			.detail(detail.toString())
+			.build();
+
+		List<PutEventsRequestEntry> entries = new ArrayList<PutEventsRequestEntry>();
+		entries.add(requestEntry);
+
+		PutEventsRequest request = PutEventsRequest.builder().entries(entries).build();
+
+		PutEventsResponse response = eventBridgeClient.putEvents(request);
 	}
 
 	@GetMapping("/pets/{petId}/edit")
