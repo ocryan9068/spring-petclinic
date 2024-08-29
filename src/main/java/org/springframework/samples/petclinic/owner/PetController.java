@@ -128,6 +128,7 @@ class PetController {
 		catch (JSONException e) {
 			throw new RuntimeException(e);
 		}
+
 		return "redirect:/owners/{ownerId}";
 	}
 
